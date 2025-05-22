@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>導控站 - Dashboard</title>
+    <!-- 引入 Leaflet 的 CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <!-- 引入 canvas-gauges 和 ApexCharts 的库 -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-gauges/gauge.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <!-- 引入 Leaflet 的 JavaScript -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <style>
+        /* 全局樣式 */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #2C3E50; /* 深色背景 */
+            color: #ECF0F1; /* 白色字體 */
+            display: grid;
+            grid-template-columns: 1fr 1fr 2fr;
+            grid-template-rows: auto auto 1fr;
+            gap: 10px;
+            height: 100vh;
+            margin: 0;
+            padding: 10px;
+        }
+
+        .status-panel {
+            background-color: #34495E; /* 狀態欄背景 */
+            border-radius: 10px;
+            padding: 15px;
+            /* 調整位置 */
+            position: relative;
+            top: -20px; /* 向上移動20像素 */
+        }
+
+        .data-container {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .data-item {
+            margin: 0;
+        }
+
+        .map-camera-wrapper {
+            display: grid;
+            grid-template-rows: 1fr 1fr; /* 上下各占一半 */
+            grid-column: span 1;
+            gap: 10px;
+            height: 100%;
+        }
+
+        .map {
+            /* 移除原有的背景色和文字，以显示地图 */
+            border-radius: 10px;
+            height: 100%;
+            width: 100%;
+        }
+
+        .camera-feed {
+            background-color: #34495E;
+            border-radius: 10px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .camera-grid {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-around;
+            width: 100%;
+        }
+
+        .camera-item {
+            flex: 1;
+            text-align: center;
+            margin: 0 5px;
+        }
+
+        .camera-item img {
+            max-width: 100%;
+            border-radius: 10px;
+        }
+
+        /* 指南針、時速表和電量表樣式 */
+        .compass-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 10px; /* 調整頂部間距 */
+        }
+
+        .compass-container {
+            width: 175px;
+            height: 175px;
+            border-radius: 50%;
+            position: relative;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+            background: radial-gradient(circle, #333 60%, #222);
+            margin-bottom: 10px;
+        }
+
+        .needle-body {
+            width: 0;
+            height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-bottom: 70px solid red;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform-origin: 50% 100%;
+            transform: translate(-50%, -100%) rotate(0deg);
+            transition: transform 0.1s linear;
+        }
+
+        .needle-cap {
+            width: 12px;
+            height: 12px;
+            background: #ddd;
+            border: 2px solid #aaa;
+            border-radius: 50%;
+            position: absolute;
+            top: calc(50% - 6px);
+            left: calc(50% - 6px);
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+        }
+
+        .direction-label {
+            position: absolute;
+            font-size: 12px;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .north { top: 12px; left: calc(50% - 8px); }
+        .east { top: calc(50% - 8px); right: 12px; }
+        .south { bottom: 12px; left: calc(50% - 8px); }
+        .west { top: calc(50% - 8px); left: 12px; }
+
+        .ne { top: 25px; right: 25px; }
+        .se { bottom: 25px; right: 25px; }
+        .sw { bottom: 25px; left: 25px; }
+        .nw { top: 25px; left: 25px; }
+
+        .tick {
+            position: absolute;
+            width: 2px;
+            height: 10px;
+            background: #aaa;
+            top: 0;
+            left: calc(50% - 1px);
+            transform-origin: 50% 87px;
+        }
+
+        .minor-tick {
+            position: absolute;
+            width: 1px;
+            height: 5px;
+            background: #777;
+            top: 0;
+            left: calc(50% - 0.5px);
+            transform-origin: 50% 87px;
+        }
+
+        .current-direction,
+        .current-speed {
+            margin-top: 10px;
+            font-size: 18px;
+            color: #fff;
+            text-align: center;
+        }
+
+        .speedometer {
+            width: 175px;
+            height: 175px;
+        }
+
+        .gauge {
+            width: 175px;
+            height: 175px;
+        }
+
+        /* 連線狀態指示器樣式 */
+        .connection-indicator {
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            margin-left: 5px;
+            background-color: red; /* 默認為紅色 */
+        }
+
+        .connected {
+            background-color: green;
+        }
+
+        .disconnected {
+            background-color: red;
+        }
+
+        .device-ids {
+            margin-left: 5px;
+            font-size: 1em;
+            color: #BDC3C7;
+        }
+
+        .status-panel h3 {
+            display: flex;
+            align-items: center;
+            margin: 0;
+        }
+
+        /* 地图容器的样式 */
+        #map {
+            height: 100%;
+            width: 100%;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 車輛狀態面板 -->
+    <div class="status-panel">
+        <h3>車輛連線狀態
+            <span id="vehicle-connection-indicator" class="connection-indicator disconnected"></span>
+            <span id="vehicle-id" class="device-ids">ID:</span>
+        </h3>
+        <p class="data-item">經度: <span id="vehicle-longitude">0</span></p>
+        <p class="data-item">緯度: <span id="vehicle-latitude">0</span></p>
+
+        <!-- 車輛指南針、時速表和電量表 -->
+        <div class="compass-wrapper">
+            <!-- 指南針 -->
+            <div class="compass-container">
+                <div class="needle-body" id="vehicle-needle"></div>
+                <div class="needle-cap"></div>
+                <div class="direction-label north">N</div>
+                <div class="direction-label east">E</div>
+                <div class="direction-label south">S</div>
+                <div class="direction-label west">W</div>
+                <div class="direction-label ne">NE</div>
+                <div class="direction-label se">SE</div>
+                <div class="direction-label sw">SW</div>
+                <div class="direction-label nw">NW</div>
+
+                <!-- 主刻度線 -->
+                <div class="tick" style="transform: rotate(0deg);"></div>
+                <div class="tick" style="transform: rotate(45deg);"></div>
+                <div class="tick" style="transform: rotate(90deg);"></div>
+                <div class="tick" style="transform: rotate(135deg);"></div>
+                <div class="tick" style="transform: rotate(180deg);"></div>
+                <div class="tick" style="transform: rotate(225deg);"></div>
+                <div class="tick" style="transform: rotate(270deg);"></div>
+                <div class="tick" style="transform: rotate(315deg);"></div>
+            </div>
+
+            <!-- 顯示方向文字 -->
+            <div class="current-direction" id="vehicle-current-direction">N / 0°</div>
+
+            <!-- 時速儀表板 -->
+            <canvas id="vehicle-speedometer" class="speedometer"></canvas>
+            <!-- 顯示時速的文字 -->
+            <div class="current-speed" id="vehicle-current-speed">0 m/s</div>
+
+            <!-- 電量儀表板 -->
+            <div id="vehicle-gauge" class="gauge"></div>
+        </div>
+    </div>
+
+    <!-- 飛機連線狀態 -->
+    <div class="status-panel">
+        <h3>飛機連線狀態 
+            <span id="drone-connection-indicator" class="connection-indicator disconnected"></span>
+            <span id="drone-id" class="device-ids">ID:</span>
+        </h3>
+        <div class="data-container">
+            <div class="data-row">
+                <p class="data-item">經度: <span id="drone-longitude">0</span></p>
+                <p class="data-item">海拔: <span id="drone-altitude">0 m</span></p>
+            </div>
+            <div class="data-row">
+                <p class="data-item">緯度: <span id="drone-latitude">0</span></p>
+                <p class="data-item">姿態: <span id="drone-attitude">stable</span></p>
+            </div>
+        </div>
+
+        <!-- 無人機指南針、時速表和電量表 -->
+        <div class="compass-wrapper">
+            <!-- 指南針 -->
+            <div class="compass-container">
+                <div class="needle-body" id="drone-needle"></div>
+                <div class="needle-cap"></div>
+                <div class="direction-label north">N</div>
+                <div class="direction-label east">E</div>
+                <div class="direction-label south">S</div>
+                <div class="direction-label west">W</div>
+                <div class="direction-label ne">NE</div>
+                <div class="direction-label se">SE</div>
+                <div class="direction-label sw">SW</div>
+                <div class="direction-label nw">NW</div>
+
+                <!-- 主刻度線 -->
+                <div class="tick" style="transform: rotate(0deg);"></div>
+                <div class="tick" style="transform: rotate(45deg);"></div>
+                <div class="tick" style="transform: rotate(90deg);"></div>
+                <div class="tick" style="transform: rotate(135deg);"></div>
+                <div class="tick" style="transform: rotate(180deg);"></div>
+                <div class="tick" style="transform: rotate(225deg);"></div>
+                <div class="tick" style="transform: rotate(270deg);"></div>
+                <div class="tick" style="transform: rotate(315deg);"></div>
+            </div>
+
+            <!-- 顯示方向文字 -->
+            <div class="current-direction" id="drone-current-direction">N / 0°</div>
+
+            <!-- 時速儀表板 -->
+            <canvas id="drone-speedometer" class="speedometer"></canvas>
+            <!-- 顯示時速的文字 -->
+            <div class="current-speed" id="drone-current-speed">0 m/s</div>
+
+            <!-- 電量儀表板 -->
+            <div id="drone-gauge" class="gauge"></div>
+        </div>
+    </div>
+
+    <div class="map-camera-wrapper">
+        <!-- 地圖區域 -->
+        <div class="map" id="map"></div>
+        <!-- 摄像头影像显示 -->
+        <div class="camera-feed">
+            <div class="camera-grid">
+                <!-- 無人車攝像頭 -->
+                <div class="camera-item">
+                    <img id="vehicle-camera-image" >
+                    <div>無人車攝影機</div>
+                </div>
+                <!-- 無人機攝像頭 -->
+                <div class="camera-item">
+                    <img id="drone-camera-image">
+                    <div>無人機攝影機</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 摄像头影像部分
+        const vehicleCameraImage = document.getElementById('vehicle-camera-image');
+        const droneCameraImage = document.getElementById('drone-camera-image');
+
+        // 更新無人車攝像頭影像
+        function updateVehicleCameraImage() {
+            if (vehicleConnected) {
+                const imageUrl = '/get_vehicle_image?' + new Date().getTime();
+                fetch(imageUrl)
+                    .then(response => {
+                        if (response.status === 200) {
+                            return response.blob();
+                        } else {
+                            return null;
+                        }
+                    })
+                    .then(blob => {
+                        if (blob) {
+                            const url = URL.createObjectURL(blob);
+                            vehicleCameraImage.src = url;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching vehicle camera image:', error);
+                    });
+            } else {
+                vehicleCameraImage.src = ''; // 清空图像
+            }
+        }
+
+        // 更新無人機攝像頭影像
+        function updateDroneCameraImage() {
+            if (droneConnected) {
+                const imageUrl = '/get_drone_image?' + new Date().getTime();
+                fetch(imageUrl)
+                    .then(response => {
+                        if (response.status === 200) {
+                            return response.blob();
+                        } else {
+                            return null;
+                        }
+                    })
+                    .then(blob => {
+                        if (blob) {
+                            const url = URL.createObjectURL(blob);
+                            droneCameraImage.src = url;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching drone camera image:', error);
+                    });
+            } else {
+                droneCameraImage.src = ''; // 清空图像
+            }
+        }
+
+        // 初始化
+        window.onload = () => {
+            initializeGauges();
+            initializeMap(); // 初始化地圖
+            setInterval(pollVehicleData, 1000); // 每秒從伺服器獲取車輛數據並更新儀表板
+            setInterval(pollDroneData, 1000);   // 每秒從伺服器獲取無人機數據並更新儀表板
+            setInterval(updateVehicleCameraImage, 200); // 每0.2秒更新無人車攝像頭畫面
+            setInterval(updateDroneCameraImage, 200);   // 每0.2秒更新無人機攝像頭畫面
+        };
+
+        // 車輛部分
+        const vehicleNeedleElement = document.getElementById('vehicle-needle');
+        const vehicleCurrentDirectionElement = document.getElementById('vehicle-current-direction');
+        const vehicleCurrentSpeedElement = document.getElementById('vehicle-current-speed');
+        const vehicleLatitudeElement = document.getElementById('vehicle-latitude');
+        const vehicleLongitudeElement = document.getElementById('vehicle-longitude');
+        const vehicleConnectionIndicator = document.getElementById('vehicle-connection-indicator');
+        const vehicleIdElement = document.getElementById('vehicle-id');
+        let vehicleGaugeSpeedometer, vehicleBatteryGauge;
+        let vehicleConnected = false;
+
+        // 無人機部分
+        const droneNeedleElement = document.getElementById('drone-needle');
+        const droneCurrentDirectionElement = document.getElementById('drone-current-direction');
+        const droneCurrentSpeedElement = document.getElementById('drone-current-speed');
+        const droneLatitudeElement = document.getElementById('drone-latitude');
+        const droneLongitudeElement = document.getElementById('drone-longitude');
+        const droneAltitudeElement = document.getElementById('drone-altitude');
+        const droneAttitudeElement = document.getElementById('drone-attitude');
+        const droneConnectionIndicator = document.getElementById('drone-connection-indicator');
+        const droneIdElement = document.getElementById('drone-id');
+        let droneGaugeSpeedometer, droneBatteryGauge;
+        let droneConnected = false;
+
+        // 地圖部分
+        let map;
+        let vehicleMarker, droneMarker;
+        let vehiclePath = []; // 用於存儲車輛的軌跡
+        let dronePath = [];   // 用於存儲無人機的軌跡
+        let vehiclePolyline, dronePolyline;
+
+        function initializeMap() {
+            // 初始化地圖
+            map = L.map('map').setView([25.0330, 121.5654], 15);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap 貢獻者'
+            }).addTo(map);
+
+            // 初始化車輛的標記
+            vehicleMarker = L.marker([25.0330, 121.5654], {
+                icon: L.icon({
+                    iconUrl: 'https://img.icons8.com/fluency/48/000000/car.png',
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16]
+                })
+            }).addTo(map)
+                .bindPopup('車輛位置');
+
+            // 初始化無人機的標記
+            droneMarker = L.marker([25.0330, 121.5654], {
+                icon: L.icon({
+                    iconUrl: 'https://img.icons8.com/color/48/000000/drone.png',
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16]
+                })
+            }).addTo(map)
+                .bindPopup('無人機位置');
+
+            // 初始化軌跡線
+            vehiclePolyline = L.polyline([], { color: 'blue' }).addTo(map);
+            dronePolyline = L.polyline([], { color: 'red' }).addTo(map);
+        }
+
+        function updateVehicleData(data) {
+            // 更新指南針
+            const compassDegree = parseFloat(data.compass_degree);
+            vehicleNeedleElement.style.transform = `translate(-50%, -100%) rotate(${compassDegree}deg)`;
+            const direction = getDirection(compassDegree);
+            vehicleCurrentDirectionElement.textContent = `${direction} / ${compassDegree.toFixed(0)}°`;
+
+            // 更新時速儀表
+            const carSpeed = parseFloat(data.car_speed);
+            vehicleGaugeSpeedometer.value = carSpeed;
+            vehicleCurrentSpeedElement.textContent = `${carSpeed.toFixed(2)} m/s`;
+
+            // 更新電量
+            const batteryCapacity = parseFloat(data.battery_capacity);
+            vehicleBatteryGauge.updateSeries([batteryCapacity]);
+
+            // 更新經緯度
+            const latitude = parseFloat(data.latitude);
+            const longitude = parseFloat(data.longitude);
+            vehicleLatitudeElement.textContent = data.latitude;
+            vehicleLongitudeElement.textContent = data.longitude;
+
+            // 更新地圖上的車輛位置
+            if (!isNaN(latitude) && !isNaN(longitude)) {
+                const latLng = [latitude, longitude];
+                vehicleMarker.setLatLng(latLng);
+
+                // 添加到軌跡中
+                vehiclePath.push(latLng);
+                vehiclePolyline.setLatLngs(vehiclePath);
+
+                // 可根據需要移動地圖視角
+                // map.panTo(latLng);
+            }
+            if (data.device_id) {
+                vehicleIdElement.textContent = `ID: ${data.device_id}`;
+            }
+        }
+
+        function updateDroneData(data) {
+            // 更新指南針
+            const compassDegree = parseFloat(data.compass_degree);
+            droneNeedleElement.style.transform = `translate(-50%, -100%) rotate(${compassDegree}deg)`;
+            const direction = getDirection(compassDegree);
+            droneCurrentDirectionElement.textContent = `${direction} / ${compassDegree.toFixed(0)}°`;
+
+            // 更新時速儀表
+            const carSpeed = parseFloat(data.car_speed);
+            droneGaugeSpeedometer.value = carSpeed;
+            droneCurrentSpeedElement.textContent = `${carSpeed.toFixed(2)} m/s`;
+
+            // 更新電量
+            const batteryCapacity = parseFloat(data.battery_capacity);
+            droneBatteryGauge.updateSeries([batteryCapacity]);
+
+            // 更新經緯度、海拔、姿態
+            const latitude = parseFloat(data.latitude);
+            const longitude = parseFloat(data.longitude);
+            droneLatitudeElement.textContent = data.latitude;
+            droneLongitudeElement.textContent = data.longitude;
+            droneAltitudeElement.textContent = data.altitude + ' m';
+            droneAttitudeElement.textContent = data.attitude;
+
+            // 更新地圖上的無人機位置
+            if (!isNaN(latitude) && !isNaN(longitude)) {
+                const latLng = [latitude, longitude];
+                droneMarker.setLatLng(latLng);
+
+                // 添加到軌跡中
+                dronePath.push(latLng);
+                dronePolyline.setLatLngs(dronePath);
+
+                // 可根據需要移動地圖視角
+                // map.panTo(latLng);
+            }
+            if (data.device_id) {
+                droneIdElement.textContent = `ID: ${data.device_id}`;
+            }
+        }
+
+        // 根據角度計算方向
+        function getDirection(angle) {
+            const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+            const index = Math.floor((angle + 22.5) / 45) % 8;
+            return directions[index];
+        }
+
+        // 設置數據過期時間（以毫秒為單位）
+        const DATA_EXPIRATION_TIME = 5000; // 5秒
+
+        function pollVehicleData() {
+            fetch('/get_vehicle_data')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Received vehicle data:', data);
+
+                    // 确认数据中包含 timestamp
+                    if (data.timestamp) {
+                        // 获取当前时间和数据时间戳
+                        const currentTime = Date.now();
+                        const dataTimestamp = data.timestamp * 1000; // 转换为毫秒
+
+                        // 检查数据是否过期
+                        if (currentTime - dataTimestamp <= DATA_EXPIRATION_TIME) {
+                            // 数据是新鲜的，更新车辆数据
+                            updateVehicleData(data);
+
+                            // 设置为已连接
+                            if (!vehicleConnected) {
+                                vehicleConnected = true;
+                                vehicleConnectionIndicator.classList.remove('disconnected');
+                                vehicleConnectionIndicator.classList.add('connected');
+                                console.log('Vehicle connected');
+                            }
+                        } else {
+                            // 数据已过期，设置为断线并重置数据
+                            if (vehicleConnected) {
+                                vehicleConnected = false;
+                                vehicleConnectionIndicator.classList.remove('connected');
+                                vehicleConnectionIndicator.classList.add('disconnected');
+                                console.log('Vehicle disconnected due to data expiration');
+                            }
+                            resetVehicleData();
+                        }
+                    } else {
+                        console.warn('Vehicle data does not contain timestamp');
+                        resetVehicleData();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching vehicle data:', error);
+                    // 发生错误时，设置为断线并重置数据
+                    if (vehicleConnected) {
+                        vehicleConnected = false;
+                        vehicleConnectionIndicator.classList.remove('connected');
+                        vehicleConnectionIndicator.classList.add('disconnected');
+                        console.log('Vehicle disconnected due to error');
+                    }
+                    resetVehicleData();
+                });
+        }
+
+        function resetVehicleData() {
+            // 重置指南针
+            vehicleNeedleElement.style.transform = `translate(-50%, -100%) rotate(0deg)`;
+            vehicleCurrentDirectionElement.textContent = `N / 0°`;
+
+            // 重置时速表
+            vehicleGaugeSpeedometer.value = 0;
+            vehicleCurrentSpeedElement.textContent = `0 m/s`;
+
+            // 重置电量表
+            vehicleBatteryGauge.updateSeries([0]);
+
+            // 重置经纬度
+            vehicleLatitudeElement.textContent = '0';
+            vehicleLongitudeElement.textContent = '0';
+
+            // 重置设备ID
+            vehicleIdElement.textContent = 'ID:';
+
+            // 重置地图上的车辆位置
+            const defaultLatLng = [0, 0];
+            vehicleMarker.setLatLng(defaultLatLng);
+            vehiclePath = [];
+            vehiclePolyline.setLatLngs(vehiclePath);
+        }
+
+        function pollDroneData() {
+            fetch('/get_drone_data')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Received drone data:', data);
+
+                    // 确认数据中包含 timestamp
+                    if (data.timestamp) {
+                        // 获取当前时间和数据时间戳
+                        const currentTime = Date.now();
+                        const dataTimestamp = data.timestamp * 1000; // 转换为毫秒
+
+                        // 检查数据是否过期
+                        if (currentTime - dataTimestamp <= DATA_EXPIRATION_TIME) {
+                            // 数据是新鲜的，更新无人机数据
+                            updateDroneData(data);
+
+                            // 设置为已连接
+                            if (!droneConnected) {
+                                droneConnected = true;
+                                droneConnectionIndicator.classList.remove('disconnected');
+                                droneConnectionIndicator.classList.add('connected');
+                                console.log('Drone connected');
+                            }
+                        } else {
+                            // 数据已过期，设置为断线并重置数据
+                            if (droneConnected) {
+                                droneConnected = false;
+                                droneConnectionIndicator.classList.remove('connected');
+                                droneConnectionIndicator.classList.add('disconnected');
+                                console.log('Drone disconnected due to data expiration');
+                            }
+                            resetDroneData();
+                        }
+                    } else {
+                        console.warn('Drone data does not contain timestamp');
+                        resetDroneData();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching drone data:', error);
+                    // 发生错误时，设置为断线并重置数据
+                    if (droneConnected) {
+                        droneConnected = false;
+                        droneConnectionIndicator.classList.remove('connected');
+                        droneConnectionIndicator.classList.add('disconnected');
+                        console.log('Drone disconnected due to error');
+                    }
+                    resetDroneData();
+                });
+        }
+
+        function resetDroneData() {
+            // 重置指南针
+            droneNeedleElement.style.transform = `translate(-50%, -100%) rotate(0deg)`;
+            droneCurrentDirectionElement.textContent = `N / 0°`;
+
+            // 重置时速表
+            droneGaugeSpeedometer.value = 0;
+            droneCurrentSpeedElement.textContent = `0 m/s`;
+
+            // 重置电量表
+            droneBatteryGauge.updateSeries([0]);
+
+            // 重置经纬度、海拔、姿态
+            droneLatitudeElement.textContent = '0';
+            droneLongitudeElement.textContent = '0';
+            droneAltitudeElement.textContent = '0 m';
+            droneAttitudeElement.textContent = 'stable';
+
+            // 重置设备ID
+            droneIdElement.textContent = 'ID:';
+
+            // 重置地图上的无人机位置
+            const defaultLatLng = [0, 0];
+            droneMarker.setLatLng(defaultLatLng);
+            dronePath = [];
+            dronePolyline.setLatLngs(dronePath);
+        }
+
+        function initializeGauges() {
+            // 初始化車輛時速儀表
+            vehicleGaugeSpeedometer = new RadialGauge({
+                renderTo: 'vehicle-speedometer',
+                width: 175,
+                height: 175,
+                units: "m/s",
+                minValue: 0,
+                maxValue: 12,
+                majorTicks: ["0", "2", "4", "6", "8", "10", "12"],
+                minorTicks: 4,
+                ticksAngle: 270,
+                startAngle: 45,
+                strokeTicks: true,
+                highlights: [
+                    { from: 0, to: 4, color: "rgba(0,255,127,0.75)" },
+                    { from: 4, to: 8, color: "rgba(255,215,0,0.75)" },
+                    { from: 8, to: 12, color: "rgba(255,69,0,0.85)" }
+                ],
+                colorPlate: "#222",
+                colorMajorTicks: "#f5f5f5",
+                colorMinorTicks: "#ddd",
+                colorTitle: "#fff",
+                colorUnits: "#ccc",
+                colorNumbers: "#eee",
+                colorNeedle: "rgba(240, 128, 128, 1)",
+                colorNeedleEnd: "rgba(255, 160, 122, .9)",
+                valueBox: false,
+                animationRule: "dequint",
+                animationDuration: 1500,
+            }).draw();
+
+            // 初始化車輛電量儀表板
+            var optionsVehicleBattery = {
+                chart: {
+                    type: 'radialBar',
+                    height: 175,
+                    width: 175,
+                    offsetY: -20,
+                    background: "transparent"
+                },
+                plotOptions: {
+                    radialBar: {
+                        startAngle: -135,
+                        endAngle: 135,
+                        hollow: { size: '60%' },
+                        track: {
+                            background: 'transparent',
+                            strokeWidth: '97%',
+                            margin: 5,
+                        },
+                        dataLabels: {
+                            name: {
+                                fontSize: '16px',
+                                color: '#fff',
+                                offsetY: -10
+                            },
+                            value: {
+                                fontSize: '14px',
+                                color: '#fff',
+                                offsetY: 5,
+                                formatter: function (val) {
+                                    return val + " %";
+                                }
+                            }
+                        }
+                    }
+                },
+                fill: {
+                    type: 'gradient',
+                    gradient: {
+                        shade: 'dark',
+                        type: 'horizontal',
+                        inverseColors: true,
+                        stops: [0, 100],
+                        colorStops: [
+                            {
+                                offset: 0,
+                                color: "#FF4560", // 低百分比顯示紅色
+                                opacity: 1
+                            },
+                            {
+                                offset: 100,
+                                color: "#00E396", // 高百分比顯示綠色
+                                opacity: 1
+                            }
+                        ]
+                    }
+                },
+                stroke: { dashArray: 4 },
+                labels: ['Battery'],
+                series: [0],
+                colors: ['#FF4560'], // 低百分比顯示紅色
+            };
+
+            vehicleBatteryGauge = new ApexCharts(document.querySelector("#vehicle-gauge"), optionsVehicleBattery);
+            vehicleBatteryGauge.render();
+
+            // 初始化無人機時速儀表
+            droneGaugeSpeedometer = new RadialGauge({
+                renderTo: 'drone-speedometer',
+                width: 175,
+                height: 175,
+                units: "m/s",
+                minValue: 0,
+                maxValue: 30,
+                majorTicks: ["0", "5", "10", "15", "20", "25", "30"],
+                minorTicks: 4,
+                ticksAngle: 270,
+                startAngle: 45,
+                strokeTicks: true,
+                highlights: [
+                    { from: 0, to: 10, color: "rgba(0,255,127,0.75)" },
+                    { from: 10, to: 20, color: "rgba(255,215,0,0.75)" },
+                    { from: 20, to: 30, color: "rgba(255,69,0,0.85)" }
+                ],
+                colorPlate: "#222",
+                colorMajorTicks: "#f5f5f5",
+                colorMinorTicks: "#ddd",
+                colorTitle: "#fff",
+                colorUnits: "#ccc",
+                colorNumbers: "#eee",
+                colorNeedle: "rgba(240, 128, 128, 1)",
+                colorNeedleEnd: "rgba(255, 160, 122, .9)",
+                valueBox: false,
+                animationRule: "dequint",
+                animationDuration: 1500,
+            }).draw();
+
+            // 初始化無人機電量儀表板
+            var optionsDroneBattery = {
+                chart: {
+                    type: 'radialBar',
+                    height: 175,
+                    width: 175,
+                    offsetY: -20,
+                    background: "transparent"
+                },
+                plotOptions: {
+                    radialBar: {
+                        startAngle: -135,
+                        endAngle: 135,
+                        hollow: { size: '60%' },
+                        track: {
+                            background: 'transparent',
+                            strokeWidth: '97%',
+                            margin: 5,
+                        },
+                        dataLabels: {
+                            name: {
+                                fontSize: '16px',
+                                color: '#fff',
+                                offsetY: -10
+                            },
+                            value: {
+                                fontSize: '14px',
+                                color: '#fff',
+                                offsetY: 5,
+                                formatter: function (val) {
+                                    return val + " %";
+                                }
+                            }
+                        }
+                    }
+                },
+                fill: {
+                    type: 'gradient',
+                    gradient: {
+                        shade: 'dark',
+                        type: 'horizontal',
+                        inverseColors: true,
+                        stops: [0, 100],
+                        colorStops: [
+                            {
+                                offset: 0,
+                                color: "#FF4560", // 低百分比顯示紅色
+                                opacity: 1
+                            },
+                            {
+                                offset: 100,
+                                color: "#00E396", // 高百分比顯示綠色
+                                opacity: 1
+                            }
+                        ]
+                    }
+                },
+                stroke: { dashArray: 4 },
+                labels: ['Battery'],
+                series: [0],
+                colors: ['#FF4560'], // 低百分比顯示紅色
+            };
+
+            droneBatteryGauge = new ApexCharts(document.querySelector("#drone-gauge"), optionsDroneBattery);
+            droneBatteryGauge.render();
+        }
+    </script>
+</body>
+</html>
